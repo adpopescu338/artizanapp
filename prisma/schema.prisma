@@ -1,0 +1,236 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
+  preRegisteredAt DateTime
+
+  passwordHash             String
+  email                    String    @unique // TODO: additional_feature_ath2 + make nullable so users can sign up with phone number instead
+  emailVerified            Boolean   @default(false)
+  resetPasswordOtp         String?
+  resetPasswordOtpIssuedAt DateTime?
+
+  // must eventually have a user profile
+  profile        UserProfile?
+  // might or might not have a seller profile
+  sellerProfiles SellerProfile[] @relation("owner")
+
+  phoneNumbers                       PhoneNumber[]
+  provisionallyCreatedSellerProfiles SellerProfile[] @relation("provisionalCreatingUser")
+
+  @@index([email])
+}
+
+// pre-registers with email / phone and password
+model PreRegisteredUser {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  passwordHash String
+
+  fullName String
+
+  channelType CommunicationChannelType @default(EMAIL)
+  // email address or phone number
+  channel     String                   @unique
+
+  otp         String
+  otpIssuedAt DateTime @default(now())
+  // no verified field. When the otp is used, the user is created and the pre-registered user is deleted
+}
+
+model SetupStep {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  name        SetupStepName
+  completedAt DateTime?
+  skippable   Boolean
+  skippedAt   DateTime?
+
+  sellerProfile   SellerProfile @relation(fields: [sellerProfileId], references: [id], onDelete: Cascade)
+  sellerProfileId String
+  order           Int
+
+  @@unique([sellerProfileId, name], name: "sellerProfileId_name_unique")
+  @@index([sellerProfileId, name], name: "sellerProfileId_name_idx")
+}
+
+enum SetupStepName {
+  BASIC_INFO
+  CONTACT_DETAILS
+  PROFILE_IMAGE
+  PRODUCTS
+}
+
+enum CommunicationChannelType {
+  EMAIL
+  // PHONE TODO: additional_feature_ath2
+}
+
+model UserProfile {
+  id                    String                 @id @default(uuid())
+  userId                String                 @unique
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName              String
+  createdAt             DateTime               @default(now())
+  productReviews        ProductReview[]
+  productReviewComments ProductReviewComment[]
+  sellerReviews         SellerReview[]
+  SellerReviewComment   SellerReviewComment[]
+}
+
+model SellerProfile {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  name               String
+  shortDescription   String?
+  description        String?
+  profileImage       ImageFile?    @relation("profileImage")
+  publicEmailAddress String?
+  publicPhoneNumbers PhoneNumber[]
+  links              String[]
+
+  products Product[]
+
+  location Location?
+
+  user   User?   @relation(name: "owner", fields: [userId], references: [id])
+  userId String?
+
+  provisionalCreatingUser   User?          @relation(name: "provisionalCreatingUser", fields: [provisionalCreatingUserId], references: [id])
+  provisionalCreatingUserId String?
+  reviews                   SellerReview[]
+  setupSteps                SetupStep[]
+}
+
+model ImageFile {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  // No delete cascade, so we can cleanup in AWS orphaned images
+  url                              String
+  sellerProfileWhereProfileImage   SellerProfile? @relation("profileImage", fields: [sellerProfileWhereProfileImageId], references: [id])
+  sellerProfileWhereProfileImageId String?        @unique
+
+  productWhereProductImage   Product? @relation("productImage", fields: [productWhereProductImageId], references: [id])
+  productWhereProductImageId String?  @unique
+}
+
+model Location {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  lat              Float?
+  long             Float?
+  formattedAddress String
+
+  sellerProfile   SellerProfile @relation(fields: [sellerProfileId], references: [id])
+  sellerProfileId String        @unique
+}
+
+model Product {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  name        String
+  description String?
+  price       Float?
+  stock       Int?
+  images      ImageFile[] @relation("productImage")
+
+  seller   SellerProfile   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  sellerId String
+  reviews  ProductReview[]
+}
+
+model SellerReview {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  rating   Int
+  title    String?
+  text     String?
+  comments SellerReviewComment[]
+  images   String[]
+
+  seller   SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  sellerId String
+
+  userProfile   UserProfile @relation(fields: [userProfileId], references: [id], onDelete: Cascade)
+  userProfileId String
+}
+
+model SellerReviewComment {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  text String
+
+  sellerReview   SellerReview @relation(fields: [sellerReviewId], references: [id], onDelete: Cascade)
+  sellerReviewId String
+
+  userProfile   UserProfile @relation(fields: [userProfileId], references: [id], onDelete: Cascade)
+  userProfileId String
+}
+
+model ProductReview {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  rating   Int
+  title    String?
+  text     String?
+  comments ProductReviewComment[]
+  images   String[]
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId String
+
+  userProfile   UserProfile @relation(fields: [userProfileId], references: [id], onDelete: Cascade)
+  userProfileId String
+}
+
+model ProductReviewComment {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  text String
+
+  productReview   ProductReview @relation(fields: [productReviewId], references: [id], onDelete: Cascade)
+  productReviewId String
+
+  userProfile   UserProfile @relation(fields: [userProfileId], references: [id], onDelete: Cascade)
+  userProfileId String
+}
+
+model PhoneNumber {
+  id String @id @default(uuid())
+
+  number      String
+  createdAt   DateTime  @default(now())
+  description String?
+  verified    Boolean   @default(false)
+  otp         String?
+  otpIssuedAt DateTime?
+
+  sellerProfile   SellerProfile? @relation(fields: [sellerProfileId], references: [id], onDelete: Cascade)
+  sellerProfileId String?
+  user            User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String?
+}
